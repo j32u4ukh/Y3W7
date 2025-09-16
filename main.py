@@ -1,9 +1,11 @@
+import argparse
 import datetime
+import time
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-import time
 
 
 TIMEOUT = 20  # 等待元素最大秒數
@@ -151,9 +153,23 @@ def wait_until(target_time: str,
             break  # 小於等於最後門檻，直接結束迴圈
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":    
+    parser = argparse.ArgumentParser(description="Course Auto Register Script")
+    parser.add_argument("--email", required=True, help="登入用 Email")
+    parser.add_argument("--password", required=True, help="登入用密碼")
+    parser.add_argument("--ocid", required=True, help="課程 OCID")
+    parser.add_argument("--target_time", required=True, help="目標時間 (格式 HH:mm:ss)")
+    args = parser.parse_args()
+
+    # 建立瀏覽器物件
     driver = webdriver.Chrome()
-    login(driver, "email", "password")
-    register_course(None, driver, ocid="ocid")
+
+    # 登入帳號
+    login(driver, email=args.email, password=args.password)
+
+    # 等待到 target_time 之後再進行課程報名
+    register_course(target_time=args.target_time, driver=driver, ocid=args.ocid)
+
+    # 結束瀏覽器
     driver.quit()
 
