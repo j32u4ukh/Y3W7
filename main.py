@@ -1,3 +1,4 @@
+import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
@@ -34,12 +35,19 @@ def login(driver, email: str, password: str):
     print("完成登入!!")
 
 
-def register_course(driver, ocid: str):
+def register_course(target_time: str, driver, ocid: str):
     URL = f"https://ojt.wda.gov.tw/ClassSearch/Detail?PlanType=1&OCID={ocid}"
     print(f"URL: {URL}")
 
     driver.get(URL)
     wait = WebDriverWait(driver, TIMEOUT)
+    
+    # 給定指定時間 HH:mm:ss，這個時間前，間隔 10 毫秒或 100 毫秒檢查一次，時間到了再繼續執行
+    if target_time is not None:
+        wait_until(target_time=target_time, 
+                   threshold1=10, interval1=5, 
+                   threshold2=1.5, interval2=1,
+                   threshold3=0, interval3=0.1)
 
     # 等待「我要報名」按鈕並點擊
     enroll_button = wait.until(
@@ -104,9 +112,48 @@ def register_course(driver, ocid: str):
     print("課程報名完成，已出現報名結果頁面")
 
 
+def wait_until(target_time: str,
+               threshold1: float, interval1: float,
+               threshold2: float, interval2: float,
+               threshold3: float, interval3: float):
+    """
+    固定三組混合等待直到指定時間 (HH:mm:ss)
+
+    :param target_time: 目標時間 (格式 HH:mm:ss)
+    :param threshold1: 第一組門檻 (秒)，delta > threshold1 時用 interval1
+    :param interval1:  第一組 sleep 秒數
+    :param threshold2: 第二組門檻 (秒)，delta > threshold2 時用 interval2
+    :param interval2:  第二組 sleep 秒數
+    :param threshold3: 第三組門檻 (秒)，delta > threshold3 時用 interval3
+    :param interval3:  第三組 sleep 秒數
+    """
+
+    today_target = datetime.datetime.strptime(
+        datetime.datetime.now().strftime("%Y-%m-%d") + " " + target_time,
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+    while True:
+        now = datetime.datetime.now()
+        delta = (today_target - now).total_seconds()
+        print(f"Now: {now}, delta: {delta}")
+
+        if delta <= 0:
+            break
+
+        if delta > threshold1:
+            time.sleep(interval1)
+        elif delta > threshold2:
+            time.sleep(interval2)
+        elif delta > threshold3:
+            time.sleep(interval3)
+        else:
+            break  # 小於等於最後門檻，直接結束迴圈
+
+
 if __name__ == "__main__":
     driver = webdriver.Chrome()
     login(driver, "email", "password")
-    register_course(driver, ocid="ocid")
+    register_course(None, driver, ocid="ocid")
     driver.quit()
 
