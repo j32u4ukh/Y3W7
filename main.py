@@ -72,6 +72,8 @@ async def register_course(target_time: str, driver: WebDriver, ocid: str):
                    threshold3=0, interval3=0.1),
     )
 
+    driver.get(URL)
+
     # 嘗試進行報名頁面
     if not signup_course(driver=driver, retry=int(args.retry)):
         print("報名流程失敗，結束程式 ❌")
