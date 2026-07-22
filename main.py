@@ -1,6 +1,6 @@
 import argparse
+import asyncio
 import datetime
-import time
 
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
@@ -56,21 +56,21 @@ def check_information(driver: WebDriver):
         print("Confirm button not found, skipping")
 
 
-def register_course(target_time: str, driver: WebDriver, ocid: str):
+async def register_course(target_time: str, driver: WebDriver, ocid: str):
     URL = f"https://ojt.wda.gov.tw/ClassSearch/Detail?PlanType=1&OCID={ocid}"
     print(f"URL: {URL}")
 
     driver.get(URL)
     wait = WebDriverWait(driver, TIMEOUT)
 
-    # 距離目標尚遠時，輪流點選選單假裝有在操作（約 20 分鐘間隔，越近越短）
-    click_look_more(driver=driver, target_time=target_time)
-
-    # 給定指定時間 HH:mm:ss，這個時間前，間隔 10 毫秒或 100 毫秒檢查一次，時間到了再繼續執行
-    wait_until(target_time=target_time,
-               threshold1=10, interval1=5,
-               threshold2=1.5, interval2=1,
-               threshold3=0, interval3=0.1)
+    # 並行：模擬操作 + 精確等待，兩者都結束後再繼續報名
+    await asyncio.gather(
+        click_look_more(driver=driver, target_time=target_time),
+        wait_until(target_time=target_time,
+                   threshold1=10, interval1=5,
+                   threshold2=1.5, interval2=1,
+                   threshold3=0, interval3=0.1),
+    )
 
     # 嘗試進行報名頁面
     if not signup_course(driver=driver, retry=int(args.retry)):
@@ -138,10 +138,10 @@ def register_course(target_time: str, driver: WebDriver, ocid: str):
         print("報名結果未出現，可能需人工確認")
 
 
-def wait_until(target_time: str,
-               threshold1: float, interval1: float,
-               threshold2: float, interval2: float,
-               threshold3: float, interval3: float):
+async def wait_until(target_time: str,
+                     threshold1: float, interval1: float,
+                     threshold2: float, interval2: float,
+                     threshold3: float, interval3: float):
     """
     固定三組混合等待直到指定時間 (HH:mm:ss)
 
@@ -169,19 +169,19 @@ def wait_until(target_time: str,
             break
 
         if delta > threshold1:
-            time.sleep(interval1)
+            await asyncio.sleep(interval1)
         elif delta > threshold2:
-            time.sleep(interval2)
+            await asyncio.sleep(interval2)
         elif delta > threshold3:
-            time.sleep(interval3)
+            await asyncio.sleep(interval3)
         else:
             break  # 小於等於最後門檻，直接結束迴圈
 
 
-def click_look_more(driver: WebDriver, target_time: str,
-                    threshold1: float = 40 * 60, interval1: float = 20 * 60,
-                    threshold2: float = 20 * 60, interval2: float = 10 * 60,
-                    threshold3: float = 5 * 60, interval3: float = 2 * 60):
+async def click_look_more(driver: WebDriver, target_time: str,
+                          threshold1: float = 40 * 60, interval1: float = 20 * 60,
+                          threshold2: float = 20 * 60, interval2: float = 10 * 60,
+                          threshold3: float = 5 * 60, interval3: float = 2 * 60):
     """
     交替點擊「最新消息」與「常見問題」，模擬有在瀏覽，直到接近 target_time。
     距離目標越遠間隔越長（約 20 分鐘），越近間隔越短。
@@ -232,7 +232,7 @@ def click_look_more(driver: WebDriver, target_time: str,
         # 不要睡過頭，預留 threshold3 給後續精確等待
         sleep_sec = min(sleep_sec, max(0.0, delta - threshold3))
         print(f"💤 sleep {sleep_sec:.0f}s before next click")
-        time.sleep(sleep_sec)
+        await asyncio.sleep(sleep_sec)
 
 
 def click_newest_information(driver: WebDriver):
@@ -381,8 +381,8 @@ if __name__ == "__main__":
         check_information(driver=driver)
 
         # 等待到 target_time 之後再進行課程報名
-        register_course(target_time=args.target_time,
-                        driver=driver, ocid=args.ocid)
+        asyncio.run(register_course(target_time=args.target_time,
+                                    driver=driver, ocid=args.ocid))
 
     except Exception as e:
         print(f"Exception: {e}")
