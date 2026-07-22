@@ -349,11 +349,19 @@ if __name__ == "__main__":
     parser.add_argument("--ocid", required=True, help="課程 OCID")
     parser.add_argument("--target_time", required=False,
                         default="11:59:55", help="目標時間 (格式 HH:mm:ss)")
+    parser.add_argument("--ahead", type=int, required=False, default=300,
+                        help="提前幾秒開始登入（預設 300，即目標時間前 5 分鐘）")
     parser.add_argument("--retry", type=int, required=False,
                         default=5, help="重試次數")
     args = parser.parse_args()
 
-    # 建立瀏覽器物件
+    # 1. 先等到目標時間前 N 秒，再啟動瀏覽器與登入
+    print(f"等待至目標時間 {args.target_time} 前 {args.ahead} 秒...")
+    wait_until(target_time=args.target_time,
+               threshold1=3600, interval1=60,
+               threshold2=600, interval2=10,
+               threshold3=args.ahead, interval3=5)
+
     driver = webdriver.Chrome()
 
     try:
@@ -362,13 +370,13 @@ if __name__ == "__main__":
         # TODO: 點擊 <button class="btn btn-info btn-info-Confirm">確定</button>
         check_information(driver=driver)
 
-        # 登入帳號
+        # 2. 登入（帳號、密碼、驗證碼）
         login(driver, email=args.email, password=args.password)
 
         # TODO: 點擊 <button class="btn btn-info btn-info-Confirm">確定</button>
         check_information(driver=driver)
 
-        # 等待到 target_time 之後再進行課程報名
+        # 3. 切換到課程頁面，再執行報名流程（內含精確等到 target_time）
         register_course(target_time=args.target_time,
                         driver=driver, ocid=args.ocid)
 
