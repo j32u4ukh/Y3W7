@@ -1,0 +1,11 @@
+{
+  "editor.formatOnSave": true, // 儲存時自動格式化
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": "explicit"
+  },
+  "python.sortImports.args": ["--profile", "black"], // 適配 black / PEP8 格式
+  "python.formatting.provider": "autopep8", // 或 "black"
+  "python.formatting.autopep8Args": ["--max-line-length=120"],
+  "python.linting.enabled": true,
+  "python.linting.pylintEnabled": true
+}
