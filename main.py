@@ -11,17 +11,15 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 TIMEOUT = 20  # 等待元素最大秒數
-CAPTCHA_REFRESH_XPATH = (
-    "/html/body/form/div[4]/div[4]/div/div[2]/div/div/div[2]"
-    "/div/div[1]/div[6]/div[3]/div[1]/a[1]"
-)
+CAPTCHA_IFRAME = "imgCapt1"
+CAPTCHA_REFRESH_SELECTOR = "a[target='imgCapt1']"
 _ocr = ddddocr.DdddOcr(show_ad=False)
 
 
 def login(driver: WebDriver, email: str, password: str):
     wait = WebDriverWait(driver, TIMEOUT)
 
-    # 點擊會員登入
+    # 點擊會員登入（會導向 SSO 登入頁）
     wait.until(EC.element_to_be_clickable(
         (By.XPATH, "//a[@href='/Member/Login']"))).click()
     print("Click login button")
@@ -32,9 +30,10 @@ def login(driver: WebDriver, email: str, password: str):
     wait.until(EC.presence_of_element_located(
         (By.ID, "CPH1_txt_dwsp"))).send_keys(password)
 
-    # 自動辨識驗證碼並填入
+    # 自動辨識驗證碼並填入（驗證碼圖在 iframe 內）
     captcha_code = solve_captcha(driver)
     print(f"captcha_code: {captcha_code}")
+    driver.switch_to.default_content()
     verify_input = wait.until(
         EC.presence_of_element_located((By.ID, "CPH1_txt_VerifyCode"))
     )
@@ -46,16 +45,14 @@ def login(driver: WebDriver, email: str, password: str):
     print("完成登入!!")
 
 
-# TODO: 當發生辨識失敗時，可點擊 /html/body/form/div[4]/div[4]/div/div[2]/div/div/div[2]/div/div[1]/div[6]/div[3]/div[1]/a[1]/svg 刷新驗證碼
-# TODO: 預設重試次數為十次
-
-
 def solve_captcha(driver: WebDriver, retry: int = 10) -> str:
-    """截取 #imgCaptcha1 並以 ddddocr 辨識；失敗則刷新後重試。"""
+    """切換至驗證碼 iframe，以 ddddocr 辨識；失敗則刷新後重試。"""
     wait = WebDriverWait(driver, TIMEOUT)
     last_code = ""
 
     for attempt in range(1, retry + 1):
+        driver.switch_to.default_content()
+        wait.until(EC.frame_to_be_available_and_switch_to_it((By.NAME, CAPTCHA_IFRAME)))
         captcha_img = wait.until(
             EC.presence_of_element_located((By.ID, "imgCaptcha1"))
         )
@@ -70,6 +67,7 @@ def solve_captcha(driver: WebDriver, retry: int = 10) -> str:
         print(f"[captcha {attempt}/{retry}] code={captcha_code!r} (raw={raw!r})")
 
         if _is_valid_captcha_code(captcha_code):
+            driver.switch_to.default_content()
             return captcha_code
 
         last_code = captcha_code
@@ -79,6 +77,7 @@ def solve_captcha(driver: WebDriver, retry: int = 10) -> str:
         print("辨識失敗，刷新驗證碼後重試...")
         _refresh_captcha(driver, old_src)
 
+    driver.switch_to.default_content()
     raise TimeoutException(
         f"驗證碼辨識失敗，已重試 {retry} 次，最後結果: {last_code!r}"
     )
@@ -90,19 +89,28 @@ def _is_valid_captcha_code(code: str) -> bool:
 
 
 def _refresh_captcha(driver: WebDriver, old_src: str) -> str:
-    """點擊刷新連結，並等待 #imgCaptcha1 的 src 變更以確認已換圖。"""
+    """在主頁點擊刷新，並等待 iframe 內 #imgCaptcha1 的 src 變更。"""
     wait = WebDriverWait(driver, TIMEOUT)
-    wait.until(EC.element_to_be_clickable((By.XPATH, CAPTCHA_REFRESH_XPATH))).click()
+    driver.switch_to.default_content()
+    wait.until(EC.element_to_be_clickable(
+        (By.CSS_SELECTOR, CAPTCHA_REFRESH_SELECTOR)
+    )).click()
 
     def src_changed(d: WebDriver) -> bool:
-        src = d.find_element(By.ID, "imgCaptcha1").get_attribute("src") or ""
-        return bool(src) and src != old_src
+        try:
+            d.switch_to.default_content()
+            d.switch_to.frame(CAPTCHA_IFRAME)
+            src = d.find_element(By.ID, "imgCaptcha1").get_attribute("src") or ""
+            return bool(src) and src != old_src
+        except Exception:
+            return False
 
     wait.until(src_changed)
     new_src = driver.find_element(By.ID, "imgCaptcha1").get_attribute("src") or ""
     # 稍等圖片載入完成再截圖
     time.sleep(0.3)
     print(f"Captcha refreshed → src={new_src}")
+    driver.switch_to.default_content()
     return new_src
 
 
