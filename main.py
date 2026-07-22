@@ -63,6 +63,9 @@ def register_course(target_time: str, driver: WebDriver, ocid: str):
     driver.get(URL)
     wait = WebDriverWait(driver, TIMEOUT)
 
+    # 距離目標尚遠時，輪流點選選單假裝有在操作（約 20 分鐘間隔，越近越短）
+    click_look_more(driver=driver, target_time=target_time)
+
     # 給定指定時間 HH:mm:ss，這個時間前，間隔 10 毫秒或 100 毫秒檢查一次，時間到了再繼續執行
     wait_until(target_time=target_time,
                threshold1=10, interval1=5,
@@ -173,6 +176,89 @@ def wait_until(target_time: str,
             time.sleep(interval3)
         else:
             break  # 小於等於最後門檻，直接結束迴圈
+
+
+def click_look_more(driver: WebDriver, target_time: str,
+                    threshold1: float = 40 * 60, interval1: float = 20 * 60,
+                    threshold2: float = 20 * 60, interval2: float = 10 * 60,
+                    threshold3: float = 5 * 60, interval3: float = 2 * 60):
+    """
+    交替點擊「最新消息」與「常見問題」，模擬有在瀏覽，直到接近 target_time。
+    距離目標越遠間隔越長（約 20 分鐘），越近間隔越短。
+
+    :param target_time: 目標時間 (格式 HH:mm:ss)
+    :param threshold1: 第一組門檻 (秒)，delta > threshold1 時用 interval1
+    :param interval1:  第一組 sleep 秒數（預設 20 分鐘）
+    :param threshold2: 第二組門檻 (秒)
+    :param interval2:  第二組 sleep 秒數（預設 10 分鐘）
+    :param threshold3: 第三組門檻 (秒)，小於等於此值就結束，交給精確 wait
+    :param interval3:  第三組 sleep 秒數（預設 2 分鐘）
+    """
+    today_target = datetime.datetime.strptime(
+        datetime.datetime.now().strftime("%Y-%m-%d") + " " + target_time,
+        "%Y-%m-%d %H:%M:%S"
+    )
+    actions = [click_newest_information, click_ussual_information]
+    idx = 0
+
+    while True:
+        now = datetime.datetime.now()
+        delta = (today_target - now).total_seconds()
+        print(f"👀 look_more {now.strftime('%H:%M:%S')} → delta={delta:.1f}s")
+
+        if delta <= threshold3:
+            print("接近目標時間，結束模擬操作")
+            break
+
+        try:
+            actions[idx % 2](driver)
+        except Exception as e:
+            print(f"look_more click failed: {e}")
+        idx += 1
+
+        now = datetime.datetime.now()
+        delta = (today_target - now).total_seconds()
+        if delta <= threshold3:
+            print("接近目標時間，結束模擬操作")
+            break
+
+        if delta > threshold1:
+            sleep_sec = interval1
+        elif delta > threshold2:
+            sleep_sec = interval2
+        else:
+            sleep_sec = interval3
+
+        # 不要睡過頭，預留 threshold3 給後續精確等待
+        sleep_sec = min(sleep_sec, max(0.0, delta - threshold3))
+        print(f"💤 sleep {sleep_sec:.0f}s before next click")
+        time.sleep(sleep_sec)
+
+
+def click_newest_information(driver: WebDriver):
+    """
+    1. /html/body/div[3]/div/div/ul/li[1] (最新消息)
+    2. /html/body/div[3]/div/div/ul/li[1]/ul/li[1]/a (焦點消息)
+    """
+    wait = WebDriverWait(driver, TIMEOUT)
+    wait.until(EC.element_to_be_clickable(
+        (By.XPATH, "/html/body/div[3]/div/div/ul/li[1]"))).click()
+    wait.until(EC.element_to_be_clickable(
+        (By.XPATH, "/html/body/div[3]/div/div/ul/li[1]/ul/li[1]/a"))).click()
+    print("Click newest information (焦點消息)")
+
+
+def click_ussual_information(driver: WebDriver):
+    """
+    1. /html/body/div[3]/div/div/ul/li[9]/a (Q&A)
+    2. /html/body/div[3]/div/div/ul/li[9]/ul/li/a (常見問題)
+    """
+    wait = WebDriverWait(driver, TIMEOUT)
+    wait.until(EC.element_to_be_clickable(
+        (By.XPATH, "/html/body/div[3]/div/div/ul/li[9]/a"))).click()
+    wait.until(EC.element_to_be_clickable(
+        (By.XPATH, "/html/body/div[3]/div/div/ul/li[9]/ul/li/a"))).click()
+    print("Click usual information (常見問題)")
 
 
 def signup_course(driver: WebDriver, retry: int = 5) -> bool:
