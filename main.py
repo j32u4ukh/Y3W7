@@ -1,5 +1,8 @@
 import argparse
 import datetime
+import logging
+import os
+import sys
 import time
 
 import ddddocr
@@ -14,6 +17,44 @@ TIMEOUT = 20  # 等待元素最大秒數
 CAPTCHA_IFRAME = "imgCapt1"
 CAPTCHA_REFRESH_SELECTOR = "a[target='imgCapt1']"
 _ocr = ddddocr.DdddOcr(show_ad=False)
+logger = logging.getLogger("course_register")
+
+
+def _resolve_log_dir() -> str:
+    """日誌目錄固定為 dist/logs（腳本從專案根目錄；exe 則在 exe 旁的 logs）。"""
+    if getattr(sys, "frozen", False):
+        # course_register.exe 位於 dist/ → dist/logs
+        return os.path.join(os.path.dirname(sys.executable), "logs")
+    return os.path.join("dist", "logs")
+
+
+def setup_logging(ocid: str) -> str:
+    """同時輸出到終端機與檔案，檔名為 dist/logs/{日期}-{時間}-{ocid}.log。"""
+    log_dir = _resolve_log_dir()
+    os.makedirs(log_dir, exist_ok=True)
+
+    now = datetime.datetime.now()
+    log_name = f"{now.strftime('%Y%m%d')}-{now.strftime('%H%M%S')}-{ocid}.log"
+    log_path = os.path.join(log_dir, log_name)
+
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+
+    formatter = logging.Formatter(
+        fmt="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    logger.info("日誌檔案: %s", log_path)
+    return log_path
 
 
 def login(driver: WebDriver, email: str, password: str):
@@ -22,7 +63,7 @@ def login(driver: WebDriver, email: str, password: str):
     # 點擊會員登入（會導向 SSO 登入頁）
     wait.until(EC.element_to_be_clickable(
         (By.XPATH, "//a[@href='/Member/Login']"))).click()
-    print("Click login button")
+    logger.info("Click login button")
 
     # 輸入帳號密碼
     wait.until(EC.presence_of_element_located(
@@ -32,7 +73,7 @@ def login(driver: WebDriver, email: str, password: str):
 
     # 自動辨識驗證碼並填入（驗證碼圖在 iframe 內）
     captcha_code = solve_captcha(driver)
-    print(f"captcha_code: {captcha_code}")
+    logger.info(f"captcha_code: {captcha_code}")
     driver.switch_to.default_content()
     verify_input = wait.until(
         EC.presence_of_element_located((By.ID, "CPH1_txt_VerifyCode"))
@@ -42,7 +83,7 @@ def login(driver: WebDriver, email: str, password: str):
 
     # 點擊登入
     wait.until(EC.element_to_be_clickable((By.ID, "CPH1_btnLogin"))).click()
-    print("完成登入!!")
+    logger.info("完成登入!!")
 
 
 def solve_captcha(driver: WebDriver, retry: int = 10) -> str:
@@ -64,7 +105,7 @@ def solve_captcha(driver: WebDriver, retry: int = 10) -> str:
         img_bytes = captcha_img.screenshot_as_png
         raw = _ocr.classification(img_bytes)
         captcha_code = "".join(c for c in raw if c.isdigit())
-        print(f"[captcha {attempt}/{retry}] code={captcha_code!r} (raw={raw!r})")
+        logger.info(f"[captcha {attempt}/{retry}] code={captcha_code!r} (raw={raw!r})")
 
         if _is_valid_captcha_code(captcha_code):
             driver.switch_to.default_content()
@@ -74,7 +115,7 @@ def solve_captcha(driver: WebDriver, retry: int = 10) -> str:
         if attempt >= retry:
             break
 
-        print("辨識失敗，刷新驗證碼後重試...")
+        logger.info("辨識失敗，刷新驗證碼後重試...")
         _refresh_captcha(driver, old_src)
 
     driver.switch_to.default_content()
@@ -109,7 +150,7 @@ def _refresh_captcha(driver: WebDriver, old_src: str) -> str:
     new_src = driver.find_element(By.ID, "imgCaptcha1").get_attribute("src") or ""
     # 稍等圖片載入完成再截圖
     time.sleep(0.3)
-    print(f"Captcha refreshed → src={new_src}")
+    logger.info(f"Captcha refreshed → src={new_src}")
     driver.switch_to.default_content()
     return new_src
 
@@ -124,10 +165,10 @@ def check_information(driver: WebDriver):
                 (By.CSS_SELECTOR, "button.btn.btn-info.btn-info-Confirm"))
         )
         confirm_btn.click()
-        print("Confirm button clicked")
+        logger.info("Confirm button clicked")
     except TimeoutException:
         # 按鈕不存在，直接略過
-        print("Confirm button not found, skipping")
+        logger.info("Confirm button not found, skipping")
 
 
 def register_course(target_time: str, driver: WebDriver, ocid: str):
@@ -139,14 +180,14 @@ def register_course(target_time: str, driver: WebDriver, ocid: str):
                threshold3=0, interval3=0.1)
 
     URL = f"https://ojt.wda.gov.tw/ClassSearch/Detail?PlanType=1&OCID={ocid}"
-    print(f"URL: {URL}")
+    logger.info(f"URL: {URL}")
 
     driver.get(URL)
     wait = WebDriverWait(driver, TIMEOUT)
 
     # 嘗試進行報名頁面
     if not signup_course(driver=driver, url=URL, retry=int(args.retry)):
-        print("報名流程失敗，結束程式 ❌")
+        logger.info("報名流程失敗，結束程式 ❌")
         return
 
     # 等待「報名」按鈕出現並點擊
@@ -156,7 +197,7 @@ def register_course(target_time: str, driver: WebDriver, ocid: str):
             (By.XPATH, "//button[@data-role='GoSignUp' and normalize-space(text())='報名']"))
     )
     driver.execute_script("arguments[0].click();", go_sign_up_btn)
-    print("Click GoSignUp button")
+    logger.info("Click GoSignUp button")
 
     """ 等待第一個確認 radio 並點選
     <input class="form-inline radioset" id="rdo_INSURED_Y" name="Detail.ISCHECK" title="請選擇是否確認(每次重新點選)" type="radio" value="Y">
@@ -165,7 +206,7 @@ def register_course(target_time: str, driver: WebDriver, ocid: str):
         EC.element_to_be_clickable((By.ID, "rdo_INSURED_Y"))
     )
     radio1.click()
-    print("選擇第一個確認")
+    logger.info("選擇第一個確認")
 
     """ 等待第二個確認 radio 並點選  
     <input class="form-inline radioset" id="rdo_ISCHECK2_Y" name="Detail.ISCHECK2" title="請選擇是否確認上述為個人最新及正確資料(每次重新點選)" type="radio" value="Y">
@@ -174,7 +215,7 @@ def register_course(target_time: str, driver: WebDriver, ocid: str):
         EC.element_to_be_clickable((By.ID, "rdo_ISCHECK2_Y"))
     )
     radio2.click()
-    print("選擇第二個確認")
+    logger.info("選擇第二個確認")
 
     """ 等待送出按鈕並點擊
     <button type="button" data-role="SaveData" class="btn-orange" title="送出報名資料">送出報名資料</button>
@@ -192,7 +233,7 @@ def register_course(target_time: str, driver: WebDriver, ocid: str):
             (By.XPATH, "//button[contains(@class,'btn-info-Confirm') and normalize-space(text())='確定']"))
     )
     driver.execute_script("arguments[0].click();", confirm_btn)
-    print("Click confirm button on popup")
+    logger.info("Click confirm button on popup")
 
     """
     <h3 class="main-title main-title-blue"><i class="fas fa-edit space-right"></i>課程報名結果</h3>
@@ -205,9 +246,9 @@ def register_course(target_time: str, driver: WebDriver, ocid: str):
                  "//h3[contains(@class,'main-title') and contains(text(),'課程報名結果')]")
             )
         )
-        print("課程報名完成，已出現報名結果頁面")
+        logger.info("課程報名完成，已出現報名結果頁面")
     except TimeoutException:
-        print("報名結果未出現，可能需人工確認")
+        logger.info("報名結果未出現，可能需人工確認")
 
 
 def wait_until(target_time: str,
@@ -234,8 +275,8 @@ def wait_until(target_time: str,
     while True:
         now = datetime.datetime.now()
         delta = (today_target - now).total_seconds()
-        # print(f"Now: {now}, delta: {delta}")
-        print(f"⏱ {now.strftime('%H:%M:%S.%f')[:-3]} → delta={delta:.3f}s")
+        # logger.info(f"Now: {now}, delta: {delta}")
+        logger.info(f"⏱ {now.strftime('%H:%M:%S.%f')[:-3]} → delta={delta:.3f}s")
 
         if delta <= 0:
             break
@@ -272,9 +313,9 @@ def signup_course(driver: WebDriver, url: str, retry: int = 5) -> bool:
                 "距離開始報名時間剩餘"
             )
         )
-        print("倒數計時結束 → 可以報名")
+        logger.info("倒數計時結束 → 可以報名")
     except TimeoutException:
-        print("尚無法報名...")
+        logger.info("尚無法報名...")
         return False
 
     for attempt in range(retry):
@@ -289,19 +330,19 @@ def signup_course(driver: WebDriver, url: str, retry: int = 5) -> bool:
                 ))
             )
             enroll_button.click()
-            print(f"Clicked '我要報名' (attempt {attempt+1})")
+            logger.info(f"Clicked '我要報名' (attempt {attempt+1})")
 
             # 檢查是否出現提示（尚未開放報名）
             if handle_alert_if_present(driver):
                 continue  # 有提示 → 再重試
             else:
-                print("Signup successful or in progress ✅")
+                logger.info("Signup successful or in progress ✅")
                 return True  # 成功 → 結束
 
         except TimeoutException:
-            print(f"Attempt {attempt+1}: '我要報名' 按鈕未出現，重試中...")
+            logger.info(f"Attempt {attempt+1}: '我要報名' 按鈕未出現，重試中...")
 
-    print("All retry attempts failed ❌")
+    logger.info("All retry attempts failed ❌")
     return False  # 全部失敗
 
 
@@ -330,7 +371,7 @@ def handle_alert_if_present(driver, timeout=3) -> bool:
             ))
         )
         confirm_button.click()
-        print("Alert detected → clicked '確定'")
+        logger.info("Alert detected → clicked '確定'")
 
         # 等待彈窗關閉
         wait.until_not(
@@ -339,7 +380,7 @@ def handle_alert_if_present(driver, timeout=3) -> bool:
                 "//div[contains(@class,'jconfirm-box')]"
             ))
         )
-        print("Alert closed → ready to retry")
+        logger.info("Alert closed → ready to retry")
         return True
 
     except TimeoutException:
@@ -358,9 +399,10 @@ if __name__ == "__main__":
     parser.add_argument("--retry", type=int, required=False,
                         default=5, help="重試次數")
     args = parser.parse_args()
+    setup_logging(args.ocid)
 
     # 1. 先等到目標時間前 N 秒，再啟動瀏覽器與登入
-    print(f"等待至目標時間 {args.target_time} 前 {args.ahead} 秒...")
+    logger.info(f"等待至目標時間 {args.target_time} 前 {args.ahead} 秒...")
     wait_until(target_time=args.target_time,
                threshold1=3600, interval1=60,
                threshold2=600, interval2=10,
@@ -384,8 +426,8 @@ if __name__ == "__main__":
         register_course(target_time=args.target_time,
                         driver=driver, ocid=args.ocid)
 
-    except Exception as e:
-        print(f"Exception: {e}")
+    except Exception:
+        logger.exception("程式執行發生例外")
 
     finally:
         # 結束瀏覽器
