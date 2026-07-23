@@ -172,18 +172,17 @@ def check_information(driver: WebDriver):
 
 
 def register_course(target_time: str, driver: WebDriver, ocid: str):
+    URL = f"https://ojt.wda.gov.tw/ClassSearch/Detail?PlanType=1&OCID={ocid}"
+    logger.info(f"URL: {URL}")
+
+    driver.get(URL)
+    wait = WebDriverWait(driver, TIMEOUT)
 
     # 給定指定時間 HH:mm:ss，這個時間前，間隔 10 毫秒或 100 毫秒檢查一次，時間到了再繼續執行
     wait_until(target_time=target_time,
                threshold1=10, interval1=5,
                threshold2=1.5, interval2=1,
                threshold3=0, interval3=0.1)
-
-    URL = f"https://ojt.wda.gov.tw/ClassSearch/Detail?PlanType=1&OCID={ocid}"
-    logger.info(f"URL: {URL}")
-
-    driver.get(URL)
-    wait = WebDriverWait(driver, TIMEOUT)
 
     # 嘗試進行報名頁面
     if not signup_course(driver=driver, url=URL, retry=int(args.retry)):
