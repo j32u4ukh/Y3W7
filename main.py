@@ -131,11 +131,6 @@ def check_information(driver: WebDriver):
 
 
 def register_course(target_time: str, driver: WebDriver, ocid: str):
-    URL = f"https://ojt.wda.gov.tw/ClassSearch/Detail?PlanType=1&OCID={ocid}"
-    print(f"URL: {URL}")
-
-    driver.get(URL)
-    wait = WebDriverWait(driver, TIMEOUT)
 
     # 給定指定時間 HH:mm:ss，這個時間前，間隔 10 毫秒或 100 毫秒檢查一次，時間到了再繼續執行
     wait_until(target_time=target_time,
@@ -143,8 +138,14 @@ def register_course(target_time: str, driver: WebDriver, ocid: str):
                threshold2=1.5, interval2=1,
                threshold3=0, interval3=0.1)
 
+    URL = f"https://ojt.wda.gov.tw/ClassSearch/Detail?PlanType=1&OCID={ocid}"
+    print(f"URL: {URL}")
+
+    driver.get(URL)
+    wait = WebDriverWait(driver, TIMEOUT)
+
     # 嘗試進行報名頁面
-    if not signup_course(driver=driver, retry=int(args.retry)):
+    if not signup_course(driver=driver, url=URL, retry=int(args.retry)):
         print("報名流程失敗，結束程式 ❌")
         return
 
@@ -249,7 +250,7 @@ def wait_until(target_time: str,
             break  # 小於等於最後門檻，直接結束迴圈
 
 
-def signup_course(driver: WebDriver, retry: int = 5) -> bool:
+def signup_course(driver: WebDriver, url: str, retry: int = 5) -> bool:
     """
     嘗試報名課程。若成功進入下一步，返回 True。
     若多次嘗試仍未成功，返回 False。
@@ -278,6 +279,9 @@ def signup_course(driver: WebDriver, retry: int = 5) -> bool:
 
     for attempt in range(retry):
         try:
+            # 確保每次重試都從課程頁面開始
+            driver.get(url)
+
             enroll_button = wait.until(
                 EC.element_to_be_clickable((
                     By.XPATH,
@@ -348,7 +352,7 @@ if __name__ == "__main__":
     parser.add_argument("--password", required=True, help="登入用密碼")
     parser.add_argument("--ocid", required=True, help="課程 OCID")
     parser.add_argument("--target_time", required=False,
-                        default="11:59:55", help="目標時間 (格式 HH:mm:ss)")
+                        default="00:00:00", help="目標時間 (格式 HH:mm:ss)")
     parser.add_argument("--ahead", type=int, required=False, default=300,
                         help="提前幾秒開始登入（預設 300，即目標時間前 5 分鐘）")
     parser.add_argument("--retry", type=int, required=False,
